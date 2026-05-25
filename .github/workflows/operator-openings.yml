@@ -1,0 +1,42 @@
+name: Operator Openings — Weekly Job Fetch
+
+on:
+  # Runs every Monday at 8:00 AM ET (13:00 UTC)
+  # Harrison gets results ready for his Tuesday review
+  schedule:
+    - cron: "0 13 * * 1"
+
+  # Manual trigger — useful for first test run and reruns
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — fetch jobs but do not write to sheet"
+        required: false
+        default: "false"
+
+jobs:
+  fetch-jobs:
+    name: Fetch weekly operator job postings
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run job fetcher
+        env:
+          RAPIDAPI_KEY:           ${{ secrets.RAPIDAPI_KEY }}
+          GOOGLE_SHEET_ID:        ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          DRY_RUN:                ${{ github.event.inputs.dry_run || 'false' }}
+        run: python scripts/fetch_jobs.py
