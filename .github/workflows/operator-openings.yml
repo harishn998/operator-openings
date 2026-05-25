@@ -2,15 +2,15 @@ name: Operator Openings — Weekly Job Fetch
 
 on:
   # Runs every Monday at 8:00 AM ET (13:00 UTC)
-  # Harrison gets results ready for his Tuesday review
+  # Results in sheet by 8 AM — Harrison reviews on Tuesday
   schedule:
     - cron: "0 13 * * 1"
 
-  # Manual trigger — useful for first test run and reruns
+  # Manual trigger — for first test and reruns
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run — fetch jobs but do not write to sheet"
+        description: "Dry run — fetch jobs but do not write to sheet or post to Slack"
         required: false
         default: "false"
 
@@ -35,8 +35,9 @@ jobs:
 
       - name: Run job fetcher
         env:
-          RAPIDAPI_KEY:           ${{ secrets.RAPIDAPI_KEY }}
-          GOOGLE_SHEET_ID:        ${{ secrets.GOOGLE_SHEET_ID }}
+          RAPIDAPI_KEY:            ${{ secrets.RAPIDAPI_KEY }}
+          GOOGLE_SHEET_ID:         ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-          DRY_RUN:                ${{ github.event.inputs.dry_run || 'false' }}
+          SLACK_BOT_TOKEN:         ${{ secrets.SLACK_BOT_TOKEN }}
+          DRY_RUN:                 ${{ github.event.inputs.dry_run || 'false' }}
         run: python scripts/fetch_jobs.py
