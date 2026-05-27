@@ -3,7 +3,7 @@ Operator Openings — Job Fetcher (Rolo)
 Runs every Monday via GitHub Actions.
 
 Blair's brief:
-- Remote jobs only (or remote-friendly)
+- Remote-first (remote + hybrid weighted higher)
 - Senior / VP / Head / Director level only (big salary roles)
 - CPG-led brands and DTC / Amazon brands specifically
 - Cool titles: Head of eCommerce, Head of Amazon Marketplace,
@@ -38,32 +38,36 @@ JSEARCH_HEADERS = {
 
 MAX_JOBS_PER_WEEK = 20   # Blair's cap — quality over quantity
 
-# ── Targeted queries — CPG / DTC / Amazon brand roles only ───────────────────
-# Each query = 1 API call. We fetch up to 10 per query then filter + rank.
-# 10 queries × 4 weeks = 40 calls/month (well within 200 free limit)
+# ── Queries ───────────────────────────────────────────────────────────────────
+# FIX: Simplified queries — brand/DTC/CPG qualifiers removed from query string.
+# The title filter below does the curation. Over-qualified queries return 0 results.
+# 13 queries × 4 weeks = 52 calls/month (within 200 free limit)
 
 QUERIES = [
-    # Head-level ecommerce at brands
-    ("Head of eCommerce DTC brand",               "United States"),
-    ("Head of eCommerce DTC brand",               "Canada"),
+    # Head of eCommerce
+    ("Head of eCommerce",             "United States"),
+    ("Head of eCommerce",             "Canada"),
 
-    # Amazon marketplace / channel
-    ("Head of Amazon Marketplace CPG brand",       "United States"),
-    ("Amazon Channel Manager DTC brand remote",    "United States"),
+    # Amazon marketplace / channel roles
+    ("Head of Amazon Marketplace",    "United States"),
+    ("Amazon Channel Manager remote", "United States"),
+    ("Amazon Channel Manager",        "Canada"),
 
-    # VP Supply Chain at consumer brands
-    ("VP Supply Chain consumer brand remote",      "United States"),
-    ("VP Supply Chain CPG brand",                  "Canada"),
+    # VP Supply Chain
+    ("VP Supply Chain remote",        "United States"),
+    ("VP Supply Chain",               "Canada"),
 
-    # Director of eCommerce at brands
-    ("Director of eCommerce DTC remote",           "United States"),
-    ("Director eCommerce Amazon brand",            "Canada"),
+    # Director eCommerce
+    ("Director of eCommerce remote",  "United States"),
+    ("Director eCommerce",            "Canada"),
 
-    # Head of global supply chain
-    ("Head of Global Supply Chain brand remote",   "United States"),
+    # Senior Director level
+    ("Senior Director Amazon",        "United States"),
+    ("Senior Director eCommerce",     "United States"),
 
-    # Senior / Director Amazon ops at brands
-    ("Senior Director Amazon Operations brand",    "United States"),
+    # Head of Supply Chain
+    ("Head of Supply Chain",          "United States"),
+    ("Head of Supply Chain",          "Canada"),
 ]
 
 SHEET_HEADERS = [
@@ -78,29 +82,41 @@ SHEET_HEADERS = [
     "Status",
 ]
 
-# ── Filters — what Blair DOES want ───────────────────────────────────────────
+# ── Title filter — Blair DOES want these ─────────────────────────────────────
+# FIX: Expanded patterns using word-boundary regex so "director, dtc ecommerce"
+# and "director/senior director" both match correctly regardless of punctuation.
 
-# Title must contain at least one of these to pass
-TITLE_INCLUDE = [
-    "head of ecommerce", "head of e-commerce",
-    "head of amazon", "head of marketplace",
-    "head of global supply", "head of supply chain",
-    "vp of ecommerce", "vp ecommerce",
-    "vp supply chain", "vp of supply chain",
-    "vice president ecommerce", "vice president supply chain",
-    "director of ecommerce", "director ecommerce",
-    "director of amazon", "director amazon",
-    "director of marketplace", "director marketplace",
-    "channel manager", "amazon channel",
-    "marketplace manager",
-    "senior director", "senior manager ecommerce",
-    "senior manager amazon",
-    "chief commercial", "chief ecommerce",
-    "general manager ecommerce",
-    "global ecommerce",
+TITLE_INCLUDE_PATTERNS = [
+    r"head\s+of\s+e[\-\s]?commerce",
+    r"head\s+of\s+amazon",
+    r"head\s+of\s+marketplace",
+    r"head\s+of\s+(global\s+)?supply\s+chain",
+    r"head\s+of\s+supplier",
+    r"vp\s+(of\s+)?e[\-\s]?commerce",
+    r"vp\s+(of\s+)?supply\s+chain",
+    r"vp\s+(of\s+)?amazon",
+    r"vice\s+president.*e[\-\s]?commerce",
+    r"vice\s+president.*supply\s+chain",
+    r"director.*e[\-\s]?commerce",
+    r"director.*amazon",
+    r"director.*marketplace",
+    r"director.*supply\s+chain",
+    r"senior\s+director",
+    r"senior\s+manager.*e[\-\s]?commerce",
+    r"senior\s+manager.*amazon",
+    r"channel\s+manager",
+    r"amazon\s+channel",
+    r"marketplace\s+manager",
+    r"chief.*e[\-\s]?commerce",
+    r"chief\s+commercial",
+    r"general\s+manager.*e[\-\s]?commerce",
+    r"global.*e[\-\s]?commerce",
 ]
 
-# Title or company must NOT contain any of these — blocks 3PLs / logistics / retailers
+# Pre-compile for speed
+TITLE_INCLUDE_RE = [re.compile(p, re.IGNORECASE) for p in TITLE_INCLUDE_PATTERNS]
+
+# ── Exclusion filters — Blair does NOT want these ─────────────────────────────
 TITLE_EXCLUDE = [
     "3pl", "3p logistics", "warehouse", "fulfillment center",
     "logistics coordinator", "logistics manager", "freight",
@@ -108,55 +124,56 @@ TITLE_EXCLUDE = [
     "retail store", "store manager", "branch manager",
     "recruiter", "talent acquisition", "hr manager",
     "software engineer", "data analyst", "accountant",
-    "marketing manager",  # too generic — keep only ops/ecomm titles
+    "marketing manager",
 ]
 
 COMPANY_EXCLUDE = [
-    # Known 3PLs / logistics operators Blair doesn't want
     "virtualvocations", "solenis", "metro supply chain",
     "247 fulfillment", "north american freight",
     "shipbob", "flexport", "maersk", "fedex", "ups", "dhl",
     "xpo", "ryder", "ceva",
 ]
 
-# Remote signals in title/location
+# Remote signals for location labelling + score boost
 REMOTE_SIGNALS = [
     "remote", "work from home", "wfh", "hybrid", "anywhere",
     "distributed", "virtual",
 ]
 
-
-# ── Scoring — prioritise the coolest roles ────────────────────────────────────
+# ── Scoring ───────────────────────────────────────────────────────────────────
+# Higher score = surfaces first. Remote + senior + brand signals score highest.
 
 SCORE_BOOST = {
-    "head of": 10,
-    "vp ": 9,
-    "vice president": 9,
-    "chief": 8,
-    "director": 6,
-    "amazon": 5,
-    "dtc": 4,
-    "cpg": 4,
-    "global": 3,
-    "remote": 3,
+    "head of":        10,
+    "vp ":             9,
+    "vice president":  9,
+    "chief":           8,
     "senior director": 7,
+    "director":        6,
+    "amazon":          5,
+    "dtc":             4,
+    "cpg":             4,
+    "fmcg":            4,
+    "global":          3,
+    "remote":          3,
+    "hybrid":          2,
+    "tiktok":          2,   # Blair liked Switch Energy — trend-forward brands
+    "marketplace":     2,
 }
 
 def score_job(job: dict) -> int:
-    title   = job["role"].lower()
-    company = job["company"].lower()
-    loc     = job["location"].lower()
-    combined = f"{title} {company} {loc}"
+    combined = f"{job['role']} {job['company']} {job['location']}".lower()
     return sum(v for k, v in SCORE_BOOST.items() if k in combined)
 
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 
 def passes_title_filter(title: str) -> bool:
-    t = title.lower()
-    return any(inc in t for inc in TITLE_INCLUDE)
+    """Title must match at least one include pattern."""
+    return any(r.search(title) for r in TITLE_INCLUDE_RE)
 
 def fails_exclusion(title: str, company: str) -> bool:
+    """Returns True if job should be rejected."""
     t = title.lower()
     c = company.lower()
     if any(ex in t for ex in TITLE_EXCLUDE):
@@ -173,6 +190,7 @@ def is_remote_friendly(title: str, location: str) -> bool:
 # ── Week label ────────────────────────────────────────────────────────────────
 
 def get_week_label() -> str:
+    """Always returns the Monday of the current week — e.g. 'Week of June 2, 2026'."""
     today  = datetime.today()
     monday = today - timedelta(days=today.weekday())
     return monday.strftime("Week of %B %-d, %Y")
@@ -181,16 +199,17 @@ def get_week_label() -> str:
 # ── JSearch ───────────────────────────────────────────────────────────────────
 
 def fetch_jobs(query: str, location: str, max_results: int = 10) -> list[dict]:
+    """Call JSearch API and return normalised job dicts."""
     params = {
-        "query":       f"{query} in {location}",
-        "num_pages":   "1",
-        "date_posted": "week",
-        "country":     "ca" if location == "Canada" else "us",
+        "query":            f"{query} in {location}",
+        "num_pages":        "1",
+        "date_posted":      "week",
+        "country":          "ca" if location == "Canada" else "us",
         "employment_types": "FULLTIME",
     }
     try:
         resp = requests.get(
-            JSEARCH_URL, headers=JSEARCH_HEADERS, params=params, timeout=15
+            JSEARCH_URL, headers=JSEARCH_HEADERS, params=params, timeout=20
         )
         resp.raise_for_status()
         data = resp.json().get("data", [])
@@ -200,17 +219,18 @@ def fetch_jobs(query: str, location: str, max_results: int = 10) -> list[dict]:
 
     results = []
     for job in data[:max_results]:
-        city    = job.get("job_city") or ""
-        state   = job.get("job_state") or ""
-        country = job.get("job_country") or location
+        city      = job.get("job_city") or ""
+        state     = job.get("job_state") or ""
+        country   = job.get("job_country") or location
         loc_parts = [p for p in [city, state] if p]
         loc_str   = ", ".join(loc_parts) if loc_parts else location
 
-        # Mark remote in location if signals present
         job_title = job.get("job_title", "").strip()
         is_remote = job.get("job_is_remote", False)
+
+        # Label remote/hybrid clearly in location column
         if is_remote or is_remote_friendly(job_title, loc_str):
-            if "remote" not in loc_str.lower():
+            if "remote" not in loc_str.lower() and "hybrid" not in loc_str.lower():
                 loc_str = f"Remote ({loc_str})" if loc_str else "Remote"
 
         results.append({
@@ -230,6 +250,7 @@ def fetch_jobs(query: str, location: str, max_results: int = 10) -> list[dict]:
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
 def get_workbook():
+    """Authenticate via service account JSON from env var."""
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if not creds_json:
         raise EnvironmentError("GOOGLE_CREDENTIALS_JSON secret is not set.")
@@ -244,17 +265,19 @@ def get_workbook():
 
 
 def ensure_headers(worksheet):
+    """Write, freeze, and format header row if not already present."""
     if worksheet.row_values(1) != SHEET_HEADERS:
         worksheet.insert_row(SHEET_HEADERS, index=1)
         worksheet.freeze(rows=1)
         worksheet.format("A1:I1", {
-            "textFormat": {"bold": True},
+            "textFormat":      {"bold": True},
             "backgroundColor": {"red": 0.13, "green": 0.31, "blue": 0.55},
         })
         print("  Header row written and formatted.")
 
 
 def get_or_create_tab(workbook, week_label: str):
+    """Return worksheet for this week. New tabs are moved to position 0 (leftmost)."""
     try:
         ws = workbook.worksheet(week_label)
         print(f"  Found existing tab: '{week_label}'")
@@ -277,9 +300,8 @@ def post_slack_notification(week_label: str, total_added: int, sheet_url: str):
         {
             "type": "header",
             "text": {
-                "type": "plain_text",
-                "text": "📋  Open Job Opportunities for Inbound Newsletter — Sheet Updated",
-                # Spreadsheet renamed to: Open Job Opportunities - Inbound Newsletter
+                "type":  "plain_text",
+                "text":  "📋  Open Job Opportunities for Inbound Newsletter — Sheet Updated",
                 "emoji": True,
             },
         },
@@ -291,7 +313,7 @@ def post_slack_notification(week_label: str, total_added: int, sheet_url: str):
                     f"Hey <@{HARRISON_ID}> — this week's curated job listings are ready.\n\n"
                     f"*Week:* {week_label}\n"
                     f"*Listings added:* {total_added} curated roles\n"
-                    f"*Filter:* Remote · Senior/VP/Head/Director · DTC & Amazon brands\n"
+                    f"*Filter:* Remote-first · Senior/VP/Head/Director · DTC & Amazon brands\n"
                     f"*Status:* All set to Pending Review"
                 ),
             },
@@ -309,9 +331,9 @@ def post_slack_notification(week_label: str, total_added: int, sheet_url: str):
                 ),
             },
             "accessory": {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Open Sheet", "emoji": True},
-                "url": sheet_url,
+                "type":  "button",
+                "text":  {"type": "plain_text", "text": "Open Sheet", "emoji": True},
+                "url":   sheet_url,
                 "style": "primary",
             },
         },
@@ -384,47 +406,44 @@ def main():
 
     try:
         print("Connecting to Google Sheets...")
-        workbook        = get_workbook()
-        ws, _           = get_or_create_tab(workbook, week_label)
+        workbook       = get_workbook()
+        ws, _          = get_or_create_tab(workbook, week_label)
         ensure_headers(ws)
 
-        all_rows        = ws.get_all_values()
-        existing_links  = {r[5] for r in all_rows[1:] if len(r) > 5}
+        all_rows       = ws.get_all_values()
+        existing_links = {r[5] for r in all_rows[1:] if len(r) > 5}
 
-        # ── Fetch all candidates across all queries ───────────────────────────
+        # ── Fetch all candidates ──────────────────────────────────────────────
         all_candidates = []
+        seen_links     = set()
+
         for query, location in QUERIES:
             print(f"\nFetching: '{query}' | {location}")
             jobs = fetch_jobs(query, location, max_results=10)
             print(f"  Raw results: {len(jobs)}")
 
             for job in jobs:
-                # Skip duplicates already in sheet
-                if job["link"] in existing_links:
+                # Skip already in sheet or already collected this run
+                if job["link"] in existing_links or job["link"] in seen_links:
                     continue
 
-                # Skip already collected this run (by link)
-                if any(c["link"] == job["link"] for c in all_candidates):
-                    continue
-
-                # Apply Blair's filters
+                # Apply title filter
                 if not passes_title_filter(job["role"]):
                     print(f"  SKIP (title filter): {job['role']}")
                     continue
 
+                # Apply exclusion filter
                 if fails_exclusion(job["role"], job["company"]):
                     print(f"  SKIP (exclusion): {job['role']} @ {job['company']}")
                     continue
 
-                # Score it
                 job["_score"] = score_job(job)
                 all_candidates.append(job)
+                seen_links.add(job["link"])
                 print(f"  ✓ PASS (score {job['_score']}): {job['role']} @ {job['company']}")
 
         # ── Sort by score — best roles first ─────────────────────────────────
         all_candidates.sort(key=lambda j: j["_score"], reverse=True)
-
-        # ── Take top MAX_JOBS_PER_WEEK ────────────────────────────────────────
         final_jobs = all_candidates[:MAX_JOBS_PER_WEEK]
 
         print(f"\n{'─'*60}")
@@ -460,7 +479,7 @@ def main():
             print("Sending Slack notification...")
             post_slack_notification(week_label, total_added, sheet_url)
         else:
-            print("No qualifying roles found this week — skipping Slack notification.")
+            print("No qualifying roles found this week — skipping Slack.")
 
     except Exception as e:
         print(f"\nFATAL ERROR: {e}")
