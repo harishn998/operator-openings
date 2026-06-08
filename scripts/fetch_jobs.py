@@ -238,7 +238,7 @@ def fetch_jobs(query: str, location: str, max_results: int = 10) -> list[dict]:
             "company":  job.get("employer_name", "").strip(),
             "location": loc_str,
             "country":  country,
-            "type":     job.get("job_employment_type", "FULLTIME").replace("_", " ").title(),
+            "type":     (job.get("job_employment_type") or "Full-Time").replace("_", " ").title(),
             "link":     job.get("job_apply_link") or job.get("job_google_link", ""),
             "source":   "JSearch / Google for Jobs",
             "date":     datetime.today().strftime("%Y-%m-%d"),
